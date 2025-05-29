@@ -31,30 +31,29 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       run: |
-        # Check if this is a full harvest run (runs at the start of even hours)
+        # Check if this is triggered by workflow_dispatch or the 2-hour schedule
+        # If GITHUB_EVENT_NAME is workflow_dispatch or it's the top of an even hour, run full harvest
         CURRENT_MINUTE=$(date +%M)
         CURRENT_HOUR=$(date +%H)
         
-        if [ "$CURRENT_MINUTE" = "00" ] && [ "$(($CURRENT_HOUR % 2))" = "0" ]; then
+        if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || ([ "$CURRENT_MINUTE" = "00" ] && [ "$(($CURRENT_HOUR % 2))" = "0" ]); then
           echo "Running scheduled full harvest..."
           python harvester.py
+        fi
+        
+        # Always check for assigned tasks
+        echo "Checking for assigned tasks in agent-tasks repository..."
+        # Get assigned tasks using curl
+        ASSIGNED_TASKS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          "https://api.github.com/repos/zipaJopa/agent-tasks/issues?assignee=github-harvester-bot&state=open")
+        
+        # Check if there are any assigned tasks
+        if echo "$ASSIGNED_TASKS" | grep -q "number"; then
+          # Extract issue numbers and process each task
+          echo "$ASSIGNED_TASKS" | grep -o '"number": [0-9]*' | grep -o '[0-9]*' | while read -r issue_number; do
+            echo "Processing task #$issue_number"
+            python harvester.py --task-mode --issue-number "$issue_number"
+          done
         else
-          echo "Checking for assigned tasks in agent-tasks repository..."
-          # Query the GitHub API to find issues assigned to github-harvester-bot
-          ASSIGNED_TASKS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/zipaJopa/agent-tasks/issues?assignee=github-harvester-bot&state=open")
-          
-          # Process each assigned task
-          echo "$ASSIGNED_TASKS" | python -c "
-import json, sys
-tasks = json.load(sys.stdin)
-if not tasks:
-    print('No tasks currently assigned to github-harvester-bot')
-    exit(0)
-    
-for task in tasks:
-    print(f\"Processing task #{task['number']}: {task['title']}\")
-    import subprocess
-    subprocess.run(['python', 'harvester.py', '--task-mode', '--issue-number', str(task['number'])])
-          "
+          echo "No tasks currently assigned to github-harvester-bot"
         fi

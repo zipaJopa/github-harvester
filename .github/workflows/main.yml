@@ -2,8 +2,9 @@ name: GitHub Harvester 24/7
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # Every 2 hours
-  workflow_dispatch:
+    - cron: '0 */2 * * *'  # Every 2 hours for full harvest
+    - cron: '*/10 * * * *' # Every 10 minutes to check for assigned tasks
+  workflow_dispatch:       # Manual trigger
 
 jobs:
   harvest:
@@ -18,9 +19,42 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install -r requirements.txt || pip install requests
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        else
+          echo "requirements.txt not found. Installing default dependencies."
+          pip install requests
+        fi
     
     - name: Run Harvester
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      run: python harvester.py
+      run: |
+        # Check if this is a full harvest run (runs at the start of even hours)
+        CURRENT_MINUTE=$(date +%M)
+        CURRENT_HOUR=$(date +%H)
+        
+        if [ "$CURRENT_MINUTE" = "00" ] && [ "$(($CURRENT_HOUR % 2))" = "0" ]; then
+          echo "Running scheduled full harvest..."
+          python harvester.py
+        else
+          echo "Checking for assigned tasks in agent-tasks repository..."
+          # Query the GitHub API to find issues assigned to github-harvester-bot
+          ASSIGNED_TASKS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/zipaJopa/agent-tasks/issues?assignee=github-harvester-bot&state=open")
+          
+          # Process each assigned task
+          echo "$ASSIGNED_TASKS" | python -c "
+import json, sys
+tasks = json.load(sys.stdin)
+if not tasks:
+    print('No tasks currently assigned to github-harvester-bot')
+    exit(0)
+    
+for task in tasks:
+    print(f\"Processing task #{task['number']}: {task['title']}\")
+    import subprocess
+    subprocess.run(['python', 'harvester.py', '--task-mode', '--issue-number', str(task['number'])])
+          "
+        fi

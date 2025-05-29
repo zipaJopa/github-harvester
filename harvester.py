@@ -18,7 +18,6 @@ from datetime import datetime
 # Configuration Constants
 AGENT_TASKS_REPO = "zipaJopa/agent-tasks"
 AGENT_RESULTS_REPO = "zipaJopa/agent-results"
-BOT_USERNAME = "github-harvester-bot"  # The username that tasks are assigned to
 HARVESTED_DIR = "harvested"
 OUTPUTS_DIR = "outputs"
 
@@ -74,15 +73,36 @@ class GitHubAPI:
                 
         return None
     
-    def get_assigned_tasks(self, repo, assignee, label="in-progress"):
-        """Get tasks (issues) assigned to a specific user with a specific label"""
+    def get_harvest_tasks(self, repo, label="in-progress"):
+        """Get harvest tasks (issues) with a specific label"""
         url = f"https://api.github.com/repos/{repo}/issues"
         params = {
-            'assignee': assignee,
             'state': 'open',
             'labels': label
         }
-        return self._request('GET', url, params=params) or []
+        issues = self._request('GET', url, params=params) or []
+        
+        # Filter for harvest tasks by checking title and body
+        harvest_tasks = []
+        for issue in issues:
+            title = issue.get('title', '').lower()
+            body = issue.get('body', '')
+            
+            # Check if it's a harvest task by title
+            if 'harvest' in title:
+                harvest_tasks.append(issue)
+                continue
+                
+            # Or check the task type in the JSON body
+            try:
+                task_json = json.loads(body)
+                if task_json.get('type', '').lower() == 'harvest':
+                    harvest_tasks.append(issue)
+            except (json.JSONDecodeError, AttributeError):
+                # Not a valid JSON or doesn't have type field
+                pass
+                
+        return harvest_tasks
     
     def get_issue_body(self, repo, issue_number):
         """Get the body content of a specific issue"""
@@ -140,8 +160,8 @@ class GitHubHarvester:
             self.run_scheduled_harvest()
         
         # Always check for assigned tasks
-        print("Checking for assigned tasks in agent-tasks repository...")
-        self.process_assigned_tasks()
+        print("Checking for harvest tasks in agent-tasks repository...")
+        self.process_harvest_tasks()
     
     def run_scheduled_harvest(self):
         """Run the regular scheduled harvest of trending projects"""
@@ -158,15 +178,15 @@ class GitHubHarvester:
             
         print(f"Harvest completed. Found {len(self.harvested_projects)} projects. Results saved to {result_file}")
     
-    def process_assigned_tasks(self):
-        """Process tasks assigned to this harvester bot"""
-        tasks = self.github.get_assigned_tasks(AGENT_TASKS_REPO, BOT_USERNAME)
+    def process_harvest_tasks(self):
+        """Process harvest tasks from the agent-tasks repository"""
+        tasks = self.github.get_harvest_tasks(AGENT_TASKS_REPO)
         
         if not tasks:
-            print("No tasks currently assigned to github-harvester-bot")
+            print("No harvest tasks found with 'in-progress' label")
             return
             
-        print(f"Found {len(tasks)} assigned tasks to process")
+        print(f"Found {len(tasks)} harvest tasks to process")
         
         for task in tasks:
             issue_number = task['number']

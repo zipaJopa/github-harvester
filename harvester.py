@@ -263,12 +263,18 @@ def process_harvest_task(issue_number, gh_interaction):
                 f"❌ Task failed: Could not store results in {AGENT_RESULTS_REPO}.")
             return False
         
-        # 6. Post completion comment
+        # 6. Post completion comment with fixed f-string
+        # Fix: Extract top 3 projects first to avoid complex f-string
+        top_projects = sorted(harvested_projects, key=lambda x: x['value_score'], reverse=True)[:3]
+        top_projects_text = []
+        for p in top_projects:
+            top_projects_text.append(f"{p['name']} ({p['value_score']})")
+        
         done_comment = f"DONE ✅ Task `{task_id}` (Type: `{task_type}`) completed successfully.\n\n"
         done_comment += f"📊 **Results Summary:**\n"
         done_comment += f"- Topics searched: {', '.join(topics)}\n"
         done_comment += f"- Projects harvested: {len(harvested_projects)}\n"
-        done_comment += f"- Top value scores: {', '.join([f'{p['name']} ({p['value_score']})' for p in sorted(harvested_projects, key=lambda x: x['value_score'], reverse=True)[:3]])}\n\n"
+        done_comment += f"- Top value scores: {', '.join(top_projects_text)}\n\n"
         done_comment += f"📄 Full results stored at: {result_url}"
         
         gh_interaction.post_comment(AGENT_TASKS_REPO, issue_number, done_comment)

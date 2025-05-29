@@ -1,0 +1,12 @@
+{
+  "high_value_topics": [
+    "ai-agent",
+    "automation",
+    "saas-template",
+    "trading-bot",
+    "scraping",
+    "productivity"
+  ],
+  "min_stars": 10,
+  "max_age_days": 365
+}
